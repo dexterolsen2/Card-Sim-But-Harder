@@ -14,7 +14,7 @@
     .front { transform: rotateY(180deg); }
     #rarity { margin-top: 10px; font-weight: bold; }
     #controls { margin-top: 20px; }
-    #controls button { margin: 0 5px; }
+    #controls button, #controls span { margin: 0 5px; }
     #collection { margin-top: 20px; display: none; max-width: 90%; overflow-wrap: break-word; background: white; padding: 10px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
     input[type=file] { display: none; }
   </style>
@@ -32,18 +32,42 @@
     <button id="clear-save">Clear Save</button>
     <button id="export-save">Export Save</button>
     <button id="import-save">Import Save</button>
+    <button id="rebirth" disabled>Rebirth</button>
     <input type="file" id="file-input" accept="application/json" />
+    <span id="rebirth-info"></span>
+    <span id="count"></span>
   </div>
   <div id="collection"></div>
 
   <script>
     // Config
     const CARD_COUNT = 1050;
-    const MIN_DENOM = 2;
-    const MAX_DENOM = 10000;
-    const STORAGE_DENOMS = 'cardDenoms';
+    const MIN_DENOM = 2, MAX_DENOM = 10000;
+    const STORAGE_DENOMS = 'cardDenoms', STORAGE_COLLECTION = 'myCardCollection', STORAGE_REBIRTH = 'rebirthCount';
 
-    // Generate or load sorted random denominators
+    // Rebirths & luck
+    let rebirthCount = parseInt(localStorage.getItem(STORAGE_REBIRTH) || '0');
+    let luckMultiplier = Math.pow(1.05, rebirthCount);
+
+    // DOM
+    const rebirthBtn = document.getElementById('rebirth'), rebirthInfo = document.getElementById('rebirth-info'), countEl = document.getElementById('count');
+    const cardEl = document.getElementById('card'), frontSide = document.getElementById('front-side'), rarityEl = document.getElementById('rarity');
+    const collectionEl = document.getElementById('collection'), showBtn = document.getElementById('show-collection');
+    const clearBtn = document.getElementById('clear-save'), exportBtn = document.getElementById('export-save');
+    const importBtn = document.getElementById('import-save'), fileInput = document.getElementById('file-input');
+
+    // State
+    let collection = [], wasNew = false, currentCard, isFirstDraw = true;
+
+    // UI updates
+    function updateCount() { countEl.textContent = `Collected: ${collection.length}`; }
+    function updateRebirthUI() {
+      const threshold = (rebirthCount + 1) * 200;
+      rebirthInfo.textContent = `Rebirths: ${rebirthCount} (Next at ${threshold} cards)`;
+      rebirthBtn.disabled = collection.length < threshold;
+    }
+
+    // Denominator list
     let denoms = JSON.parse(localStorage.getItem(STORAGE_DENOMS) || 'null');
     if (!denoms) {
       denoms = Array.from({ length: CARD_COUNT }, () => Math.floor(Math.random() * (MAX_DENOM - MIN_DENOM + 1)) + MIN_DENOM);
@@ -51,45 +75,34 @@
       localStorage.setItem(STORAGE_DENOMS, JSON.stringify(denoms));
     }
 
-    // Create card definitions
+    // Create card objects
     function createCard(id) {
-      const hue1 = (id * 37 + 13) % 360;
-      const hue2 = (id * 73 + 29) % 360;
+      const hue1 = (id * 37 + 13) % 360, hue2 = (id * 73 + 29) % 360;
       const gradient = `linear-gradient(135deg, hsl(${hue1},70%,50%),hsl(${hue2},70%,40%))`;
       const denom = denoms[id - 1];
       const rarity = `1/${denom}`;
-      const weight = 1 / Math.pow(denom, 2);
+      const weight = (1 / Math.pow(denom, 2)) * luckMultiplier;
       return { id, style: gradient, rarity, weight };
     }
-
     const cardTypes = Array.from({ length: CARD_COUNT }, (_, i) => createCard(i + 1));
-    const totalWeight = cardTypes.reduce((sum, c) => sum + c.weight, 0);
+    const totalWeight = cardTypes.reduce((s, c) => s + c.weight, 0);
 
     // Load saved collection
-    let collection = [];
-    const savedIds = JSON.parse(localStorage.getItem('myCardCollection') || '[]');
+    const savedIds = JSON.parse(localStorage.getItem(STORAGE_COLLECTION) || '[]');
     savedIds.forEach(id => {
       const c = cardTypes.find(card => card.id === id);
       if (c) collection.push(c);
     });
 
-    // DOM elements
-    const cardEl = document.getElementById('card');
-    const frontSide = document.getElementById('front-side');
-    const rarityEl = document.getElementById('rarity');
-    const collectionEl = document.getElementById('collection');
-    const showBtn = document.getElementById('show-collection');
-    const clearBtn = document.getElementById('clear-save');
-    const exportBtn = document.getElementById('export-save');
-    const importBtn = document.getElementById('import-save');
-    const fileInput = document.getElementById('file-input');
-    let currentCard;
-
+    // Persist
     function saveCollection() {
-      localStorage.setItem('myCardCollection', JSON.stringify(collection.map(c => c.id)));
+      localStorage.setItem(STORAGE_COLLECTION, JSON.stringify(collection.map(c => c.id)));
+      updateCount(); updateRebirthUI();
     }
 
+    // Draw logic
     function drawCard() {
+      wasNew = false;
       let r = Math.random() * totalWeight;
       for (const card of cardTypes) {
         r -= card.weight;
@@ -100,69 +113,73 @@
       rarityEl.textContent = '';
       if (!collection.some(c => c.id === currentCard.id)) {
         collection.push(currentCard);
+        if (!isFirstDraw) wasNew = true;
         saveCollection();
       }
     }
 
-    // Initial draw
-    drawCard();
+    // Append UI
+    function appendCardToUI(card) {
+      const div = document.createElement('div'); div.textContent = `#${card.id} - ${card.rarity}`;
+      Object.assign(div.style, {display:'inline-block',margin:'4px',padding:'6px',border:'1px solid #ccc',borderRadius:'4px',background:card.style});
+      const children = Array.from(collectionEl.children).slice(1);
+      let inserted = false;
+      children.forEach((child, idx) => {
+        const num = parseInt(child.textContent.split(' ')[0].slice(1));
+        if (!inserted && card.id < num) { collectionEl.insertBefore(div, children[idx]); inserted = true; }
+      });
+      if (!inserted) collectionEl.appendChild(div);
+    }
 
-    // Card flip and draw
+    // Initial setup
+    updateCount(); updateRebirthUI(); drawCard(); isFirstDraw = false;
+
+    // Flip/draw handler
     cardEl.addEventListener('click', () => {
       if (!cardEl.classList.contains('flipped')) {
         cardEl.classList.add('flipped');
-        setTimeout(() => rarityEl.textContent = `Rarity: ${currentCard.rarity}`, 300);
+        setTimeout(() => {
+          rarityEl.textContent = `Rarity: ${currentCard.rarity}`;
+          if (wasNew && collectionEl.style.display==='block') appendCardToUI(currentCard);
+        }, 300);
       } else {
         cardEl.classList.remove('flipped');
         setTimeout(drawCard, 300);
       }
     });
 
-    // Toggle collection display
+    // Collection toggle
     showBtn.addEventListener('click', () => {
-      if (collectionEl.style.display === 'block') {
-        collectionEl.style.display = 'none'; showBtn.textContent = 'Show Collection';
+      if (collectionEl.style.display==='block') {
+        collectionEl.style.display='none'; showBtn.textContent='Show Collection';
       } else {
-        collectionEl.innerHTML = '<h3>Your Collection:</h3>';
-        const sorted = [...collection].sort((a, b) => a.id - b.id);
-        sorted.forEach(card => {
-          const div = document.createElement('div');
-          div.textContent = `#${card.id} - ${card.rarity}`;
-          Object.assign(div.style, { display: 'inline-block', margin: '4px', padding: '6px', border: '1px solid #ccc', borderRadius: '4px', background: card.style });
-          collectionEl.appendChild(div);
-        });
-        collectionEl.style.display = 'block'; showBtn.textContent = 'Hide Collection';
+        collectionEl.innerHTML='<h3>Your Collection:</h3>';
+        collection.sort((a,b)=>a.id-b.id).forEach(appendCardToUI);
+        collectionEl.style.display='block'; showBtn.textContent='Hide Collection';
       }
     });
 
     // Clear save
-    clearBtn.addEventListener('click', () => {
-      localStorage.removeItem('myCardCollection');
-      location.reload();
+    clearBtn.addEventListener('click', ()=>{ localStorage.removeItem(STORAGE_COLLECTION); location.reload(); });
+
+    // Export
+    exportBtn.addEventListener('click', ()=>{
+      const fn=prompt('Filename:','card_collection')||'card_collection';
+      const blob=new Blob([JSON.stringify(collection.map(c=>c.id))],{type:'application/json'});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');a.href=url;a.download=`${fn}.json`;a.click();URL.revokeObjectURL(url);
     });
 
-    // Export save
-    exportBtn.addEventListener('click', () => {
-      const data = JSON.stringify(collection.map(c => c.id));
-      const blob = new Blob([data], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href = url; a.download = 'card_collection.json'; a.click(); URL.revokeObjectURL(url);
-    });
-
-    // Import save
-    importBtn.addEventListener('click', () => fileInput.click());
-    fileInput.addEventListener('change', e => {
-      const file = e.target.files[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        try {
-          const ids = JSON.parse(reader.result);
-          if (Array.isArray(ids)) {
-            localStorage.setItem('myCardCollection', JSON.stringify(ids));
-            location.reload();
-          } else alert('Invalid save format');
-        } catch { alert('Error reading file'); }
+    // Import
+    importBtn.addEventListener('click',()=>fileInput.click());
+    fileInput.addEventListener('change',e=>{
+      const file=e.target.files[0]; if(!file) return;
+      const reader=new FileReader();
+      reader.onload=()=>{
+        try{const ids=JSON.parse(reader.result);
+          if(Array.isArray(ids)){localStorage.setItem(STORAGE_COLLECTION,JSON.stringify(ids));location.reload();}
+          else alert('Invalid format');
+        }catch{alert('Error reading file');}
       };
       reader.readAsText(file);
     });
