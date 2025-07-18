@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Card Draw Simulation</title>
+  <style>
+    body { display: flex; flex-direction: column; align-items: center; font-family: Arial, sans-serif; background: #f0f0f0; margin: 0; padding: 20px; }
+    #card-container { perspective: 1000px; width: 200px; height: 300px; margin-bottom: 10px; }
+    .card { width: 100%; height: 100%; position: relative; transform-style: preserve-3d; transition: transform 0.6s; cursor: pointer; }
+    .card.flipped { transform: rotateY(180deg); }
+    .side { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; align-items: center; justify-content: center; font-size: 24px; color: white; }
+    .back { background: #333; }
+    .front { transform: rotateY(180deg); }
+    #rarity { margin-top: 10px; font-weight: bold; }
+    #controls { margin-top: 20px; }
+    #controls button { margin: 0 5px; }
+    #collection { margin-top: 20px; display: none; max-width: 90%; overflow-wrap: break-word; background: white; padding: 10px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    input[type=file] { display: none; }
+  </style>
+</head>
+<body>
+  <div id="card-container">
+    <div id="card" class="card">
+      <div class="side back">Click to flip</div>
+      <div class="side front" id="front-side"></div>
+    </div>
+  </div>
+  <div id="rarity"></div>
+  <div id="controls">
+    <button id="show-collection">Show Collection</button>
+    <button id="clear-save">Clear Save</button>
+    <button id="export-save">Export Save</button>
+    <button id="import-save">Import Save</button>
+    <input type="file" id="file-input" accept="application/json" />
+  </div>
+  <div id="collection"></div>
+
+  <script>
+    // Config
+    const CARD_COUNT = 1050;
+    const MIN_DENOM = 2;
+    const MAX_DENOM = 10000;
+    const STORAGE_DENOMS = 'cardDenoms';
+
+    // Generate or load sorted random denominators
+    let denoms = JSON.parse(localStorage.getItem(STORAGE_DENOMS) || 'null');
+    if (!denoms) {
+      denoms = Array.from({ length: CARD_COUNT }, () => Math.floor(Math.random() * (MAX_DENOM - MIN_DENOM + 1)) + MIN_DENOM);
+      denoms.sort((a, b) => a - b);
+      localStorage.setItem(STORAGE_DENOMS, JSON.stringify(denoms));
+    }
+
+    // Create card definitions
+    function createCard(id) {
+      const hue1 = (id * 37 + 13) % 360;
+      const hue2 = (id * 73 + 29) % 360;
+      const gradient = `linear-gradient(135deg, hsl(${hue1},70%,50%),hsl(${hue2},70%,40%))`;
+      const denom = denoms[id - 1];
+      const rarity = `1/${denom}`;
+      const weight = 1 / Math.pow(denom, 2);
+      return { id, style: gradient, rarity, weight };
+    }
+
+    const cardTypes = Array.from({ length: CARD_COUNT }, (_, i) => createCard(i + 1));
+    const totalWeight = cardTypes.reduce((sum, c) => sum + c.weight, 0);
+
+    // Load saved collection
+    let collection = [];
+    const savedIds = JSON.parse(localStorage.getItem('myCardCollection') || '[]');
+    savedIds.forEach(id => {
+      const c = cardTypes.find(card => card.id === id);
+      if (c) collection.push(c);
+    });
+
+    // DOM elements
+    const cardEl = document.getElementById('card');
+    const frontSide = document.getElementById('front-side');
+    const rarityEl = document.getElementById('rarity');
+    const collectionEl = document.getElementById('collection');
+    const showBtn = document.getElementById('show-collection');
+    const clearBtn = document.getElementById('clear-save');
+    const exportBtn = document.getElementById('export-save');
+    const importBtn = document.getElementById('import-save');
+    const fileInput = document.getElementById('file-input');
+    let currentCard;
+
+    function saveCollection() {
+      localStorage.setItem('myCardCollection', JSON.stringify(collection.map(c => c.id)));
+    }
+
+    function drawCard() {
+      let r = Math.random() * totalWeight;
+      for (const card of cardTypes) {
+        r -= card.weight;
+        if (r <= 0) { currentCard = card; break; }
+      }
+      frontSide.style.background = currentCard.style;
+      frontSide.textContent = `#${currentCard.id}`;
+      rarityEl.textContent = '';
+      if (!collection.some(c => c.id === currentCard.id)) {
+        collection.push(currentCard);
+        saveCollection();
+      }
+    }
+
+    // Initial draw
+    drawCard();
+
+    // Card flip and draw
+    cardEl.addEventListener('click', () => {
+      if (!cardEl.classList.contains('flipped')) {
+        cardEl.classList.add('flipped');
+        setTimeout(() => rarityEl.textContent = `Rarity: ${currentCard.rarity}`, 300);
+      } else {
+        cardEl.classList.remove('flipped');
+        setTimeout(drawCard, 300);
+      }
+    });
+
+    // Toggle collection display
+    showBtn.addEventListener('click', () => {
+      if (collectionEl.style.display === 'block') {
+        collectionEl.style.display = 'none'; showBtn.textContent = 'Show Collection';
+      } else {
+        collectionEl.innerHTML = '<h3>Your Collection:</h3>';
+        const sorted = [...collection].sort((a, b) => a.id - b.id);
+        sorted.forEach(card => {
+          const div = document.createElement('div');
+          div.textContent = `#${card.id} - ${card.rarity}`;
+          Object.assign(div.style, { display: 'inline-block', margin: '4px', padding: '6px', border: '1px solid #ccc', borderRadius: '4px', background: card.style });
+          collectionEl.appendChild(div);
+        });
+        collectionEl.style.display = 'block'; showBtn.textContent = 'Hide Collection';
+      }
+    });
+
+    // Clear save
+    clearBtn.addEventListener('click', () => {
+      localStorage.removeItem('myCardCollection');
+      location.reload();
+    });
+
+    // Export save
+    exportBtn.addEventListener('click', () => {
+      const data = JSON.stringify(collection.map(c => c.id));
+      const blob = new Blob([data], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'card_collection.json'; a.click(); URL.revokeObjectURL(url);
+    });
+
+    // Import save
+    importBtn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const ids = JSON.parse(reader.result);
+          if (Array.isArray(ids)) {
+            localStorage.setItem('myCardCollection', JSON.stringify(ids));
+            location.reload();
+          } else alert('Invalid save format');
+        } catch { alert('Error reading file'); }
+      };
+      reader.readAsText(file);
+    });
+  </script>
+</body>
+</html>
