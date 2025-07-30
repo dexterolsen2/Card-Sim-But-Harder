@@ -128,10 +128,10 @@
             if (collectionEl.style.display === 'block') appendCardToUI(currentCard);
           }
           isAnimating = false;
-        }, 600);
+        }, 450);
       } else {
         cardEl.classList.remove('flipped');
-        setTimeout(() => { drawCard(); isAnimating = false; }, 600);
+        setTimeout(() => { drawCard(); isAnimating = false; }, 450);
       }
     });
 
