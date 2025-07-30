@@ -71,23 +71,29 @@
       rebirthBtn.disabled = collection.length < threshold;
     }
 
+    // Random hex color per card id (deterministic)
+    function randomHex(id) {
+      // simple LCG to generate hex based on id
+      let x = id * 9301 + 49297;
+      x = x % 233280;
+      const hex = (x / 233280 * 0xFFFFFF) | 0;
+      return `#${hex.toString(16).padStart(6, '0')}`;
+    }
+
     function createCard(id) {
       let denom;
       if (id === 1) denom = 2;
       else if (id === 2) denom = 10;
       else denom = (id - 1) * 10;
-      const hue1 = (id * 37 + 13) % 360;
-      const hue2 = (id * 73 + 29) % 360;
-      const gradient = `linear-gradient(135deg, hsl(${hue1},70%,50%),hsl(${hue2},70%,40%))`;
+      const color = randomHex(id);
       const rarity = `1/${denom}`;
       const baseWeight = 1 / Math.pow(denom, 2);
-      return { id, style: gradient, rarity, weight: baseWeight * luckMultiplier };
+      return { id, style: color, rarity, weight: baseWeight * luckMultiplier };
     }
 
     const cardTypes = Array.from({ length: CARD_COUNT }, (_, i) => createCard(i + 1));
     const totalWeight = cardTypes.reduce((sum, c) => sum + c.weight, 0);
 
-    // Restore
     JSON.parse(localStorage.getItem(STORAGE_COLLECTION) || '[]').forEach(id => {
       const c = cardTypes.find(x => x.id === id);
       if (c) collection.push(c);
@@ -109,7 +115,6 @@
       rarityEl.textContent = '';
     }
 
-    // Prevent animation skip & collect on reveal
     cardEl.addEventListener('click', () => {
       if (isAnimating) return;
       isAnimating = true;
@@ -120,18 +125,13 @@
           if (!collection.some(c => c.id === currentCard.id)) {
             collection.push(currentCard);
             saveCollection();
-            if (collectionEl.style.display === 'block') {
-              appendCardToUI(currentCard);
-            }
+            if (collectionEl.style.display === 'block') appendCardToUI(currentCard);
           }
           isAnimating = false;
-        }, 400);
+        }, 600);
       } else {
         cardEl.classList.remove('flipped');
-        setTimeout(() => {
-          drawCard();
-          isAnimating = false;
-        },400);
+        setTimeout(() => { drawCard(); isAnimating = false; }, 600);
       }
     });
 
@@ -148,7 +148,6 @@
       if (!placed) collectionEl.appendChild(div);
     }
 
-    // Initial
     updateCount(); updateRebirthUI(); drawCard();
 
     showBtn.addEventListener('click', () => {
@@ -162,14 +161,12 @@
     });
 
     clearBtn.addEventListener('click', () => { localStorage.removeItem(STORAGE_COLLECTION); location.reload(); });
-
     exportBtn.addEventListener('click', () => {
       const fn = prompt('Enter filename:', 'card_collection') || 'card_collection';
       const blob = new Blob([JSON.stringify(collection.map(c => c.id))], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a'); a.href = url; a.download = `${fn}.json`; a.click(); URL.revokeObjectURL(url);
     });
-
     importBtn.addEventListener('click', () => fileInput.click());
     fileInput.addEventListener('change', e => {
       const f = e.target.files[0]; if (!f) return;
